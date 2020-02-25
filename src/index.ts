@@ -402,4 +402,7 @@ class TONClient extends EventEmitter {
 	}
 }
 
-export default TONClient;
+export {
+	TONClient,
+	TONAddress
+};
