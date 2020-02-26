@@ -87,14 +87,14 @@ class TONAddress {
 
 interface BlockID {
 	workchain: number;
-	shard: string;
-	seqno: number;
+	shard: BigInt;
+	seqno: BigInt;
 	root_hash: Buffer;
 	file_hash: Buffer;
 }
 interface Account {
 	address: TONAddress,
-	balance : number;
+	balance : BigInt;
 	code: Cell,
 	data: Cell,
 	lastTransaction: TransactionID;
@@ -102,7 +102,7 @@ interface Account {
 	sync?: Date;
 }
 interface TransactionID {
-	lt: number;
+	lt: BigInt;
 	hash: Buffer;
 }
 interface Transactions {
@@ -113,19 +113,19 @@ interface Transaction {
 	id: TransactionID;
 	time: Date;
 	data: Buffer;
-	fee: number;
-	storage_fee: number;
-	other_fee: number;
+	fee: BigInt;
+	storage_fee: BigInt;
+	other_fee: BigInt;
 	inmsg: TransactionMessage;
 	outmsgs: TransactionMessage[];
 }
 class TransactionMessage {
 	source?: TONAddress;
 	destination?: TONAddress;
-	value: number;
-	fwd_fee: number;
-	ihr_fee: number;
-	created_lt: number;
+	value: BigInt;
+	fwd_fee: BigInt;
+	ihr_fee: BigInt;
+	created_lt: BigInt;
 	body_hash: Buffer;
 	message?: string;
 	is_message_encrypted: boolean;
@@ -143,10 +143,10 @@ class TransactionMessage {
 			this.destination = undefined;
 		}
 
-		this.value = parseInt(raw.value);
-		this.fwd_fee = parseInt(raw.fwd_fee);
-		this.ihr_fee = parseInt(raw.ihr_fee);
-		this.created_lt = parseInt(raw.created_lt);
+		this.value = BigInt(raw.value);
+		this.fwd_fee = BigInt(raw.fwd_fee);
+		this.ihr_fee = BigInt(raw.ihr_fee);
+		this.created_lt = BigInt(raw.created_lt);
 		this.body_hash = Buffer.from(raw.body_hash, 'base64');
 		this.message = raw.message || undefined;
 		this.is_message_encrypted = raw.is_message_encrypted;
@@ -286,17 +286,17 @@ class TONClient extends EventEmitter {
 
 		return <Account> {
 			address,
-			balance: parseInt(result.balance),
+			balance: BigInt(result.balance),
 			code: Cell.deserialize(Buffer.from(result.code, 'base64')),
 			data: Cell.deserialize(Buffer.from(result.data, 'base64')),
 			lastTransaction: <TransactionID> {
-				lt: parseInt(result.last_transaction_id.lt),
+				lt: BigInt(result.last_transaction_id.lt),
 				hash: Buffer.from(result.last_transaction_id.hash, 'base64')
 			},
 			block: <BlockID> {
 				workchain: result.block_id.workchain,
-				shard: result.block_id.shard,
-				seqno: result.block_id.seqno,
+				shard: BigInt(result.block_id.shard),
+				seqno: BigInt(result.block_id.seqno),
 				root_hash: Buffer.from(result.block_id.root_hash, 'base64'),
 				file_hash: Buffer.from(result.block_id.file_hash, 'base64')
 			},
@@ -332,13 +332,13 @@ class TONClient extends EventEmitter {
 			transactions[i] = <Transaction> {
 				time: new Date(transaction.utime),
 				id: <TransactionID> {
-					lt: transaction.transaction_id.lt,
+					lt: BigInt(transaction.transaction_id.lt),
 					hash: Buffer.from(transaction.transaction_id.hash, 'base64')
 				},
 				data: Buffer.from(transaction.data, 'base64'),
-				fee: parseInt(transaction.fee),
-				storage_fee: parseInt(transaction.storage_fee),
-				other_fee: parseInt(transaction.other_fee),
+				fee: BigInt(transaction.fee),
+				storage_fee: BigInt(transaction.storage_fee),
+				other_fee: BigInt(transaction.other_fee),
 				inmsg: new TransactionMessage(transaction.in_msg),
 				outmsgs: transaction.out_msgs.map((raw : any) => new TransactionMessage(raw))
 			};
@@ -347,7 +347,7 @@ class TONClient extends EventEmitter {
 		return <Transactions> {
 			transactions,
 			last: <TransactionID> {
-				lt: result.previous_transaction_id.lt,
+				lt: BigInt(result.previous_transaction_id.lt),
 				hash: Buffer.from(result.previous_transaction_id.hash, 'base64')
 			}
 		};
