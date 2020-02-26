@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "crc16": "^1.0.1",
+    "fast-crc32c": "^2.0.0",
     "typescript": "^3.8.2"
   },
   "devDependencies": {

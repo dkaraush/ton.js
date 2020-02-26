@@ -1,4 +1,5 @@
-import { StackEntry, Cell, Slice } from './stack';
+import { StackEntry, Cell as StackCell, Slice as StackSlice } from './stack';
+import { Cell } from './boc';
 
 const ref = require('ref');
 const ffi = require('ffi-napi');
@@ -94,8 +95,8 @@ interface BlockID {
 interface Account {
 	address: TONAddress,
 	balance : number;
-	code: Buffer,
-	data: Buffer,
+	code: Cell,
+	data: Cell,
 	lastTransaction: TransactionID;
 	block: BlockID;
 	sync?: Date;
@@ -249,7 +250,7 @@ class TONClient extends EventEmitter {
 	private async init() {
 		this.instance = await tonlib.tonlib_client_json_create();
 		await this.exec(this.initObject());
-		// await this.setVerbosityLevel(0);
+		await this.setVerbosityLevel(0);
 		this.inited = true;
 		this.emit("connect");
 	}
@@ -286,20 +287,20 @@ class TONClient extends EventEmitter {
 		return <Account> {
 			address,
 			balance: parseInt(result.balance),
-			code: Buffer.from(result.code, 'base64'),
-			data: Buffer.from(result.data, 'base64'),
+			code: Cell.deserialize(Buffer.from(result.code, 'base64')),
+			data: Cell.deserialize(Buffer.from(result.data, 'base64')),
 			lastTransaction: <TransactionID> {
 				lt: parseInt(result.last_transaction_id.lt),
 				hash: Buffer.from(result.last_transaction_id.hash, 'base64')
 			},
-			block: {
+			block: <BlockID> {
 				workchain: result.block_id.workchain,
 				shard: result.block_id.shard,
 				seqno: result.block_id.seqno,
 				root_hash: Buffer.from(result.block_id.root_hash, 'base64'),
 				file_hash: Buffer.from(result.block_id.file_hash, 'base64')
 			},
-			sync: new Date(result.sync_utime)
+			sync: new Date(result.sync_utime * 1000)
 		};
 	}
 
