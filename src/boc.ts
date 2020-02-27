@@ -43,25 +43,25 @@ function sum(arr : Array<number>) : number {
 	return arr.reduce((a : number, b : number) => a + b, 0);
 }
 
-class Cell {
+class BagOfCells {
 	special : boolean = false;
 
 	index : number = 0;
 	len : number; // in bits
 	data : Buffer;
-	refs : Array<Cell>;
+	refs : Array<BagOfCells>;
 
-	constructor(len : number = 0, buf? : Buffer, refs? : Array<Cell>) {
+	constructor(len : number = 0, buf? : Buffer, refs? : Array<BagOfCells>) {
 		this.len = len;
 		this.index = len;
 		this.data = buf ? Buffer.concat([buf, Buffer.alloc(128 - buf.length)]) : Buffer.alloc(128);
-		this.refs = refs || new Array<Cell>();
+		this.refs = refs || new Array<BagOfCells>();
 	}
 
 	static magicGeneric = Buffer.from('B5EE9C72', 'hex');
-	static deserialize(buffer : Buffer) : Cell {
+	static deserialize(buffer : Buffer) : BagOfCells {
 		let magic = buffer.slice(0, 4);
-		if (magic.equals(Cell.magicGeneric)) {
+		if (magic.equals(BagOfCells.magicGeneric)) {
 			let byte = buffer.readUInt8(4);
 			let has_idx = !!(byte & 128);
 			let has_crc32c = !!(byte & 64);
@@ -92,7 +92,7 @@ class Cell {
 					throw new Error("CRC32C in BOC doesn't match to the actual");
 			}
 
-			let cells = new Array<Cell>(cells_count);
+			let cells = new Array<BagOfCells>(cells_count);
 			let refs = new Array(cells_count);
 
 			for (let c = 0; c < cells_count; ++c) {
@@ -107,9 +107,9 @@ class Cell {
 				let isFull = (d2 % 2 == 0), 
 					cell_size = (d2) / 2,// + (isFull ? 0 : 0.5),
 					cell_fsize = Math.ceil(cell_size);
-				let cell = cell_data.slice(2, 2 + cell_fsize);
+				let cell_buffer = cell_data.slice(2, 2 + cell_fsize);
 				
-				cells[c] = new Cell(cell_size * 8, cell);
+				cells[c] = new BagOfCells(cell_size * 8, cell_buffer);
 				if (is_special)
 					cells[c].special = true;
 				if (indexes)
@@ -122,7 +122,7 @@ class Cell {
 					refs[c].push(ref);
 				}
 
-				cell_data = cell_data.slice(2 + cell.length + refs_buff.length);
+				cell_data = cell_data.slice(2 + BagOfCells.length + refs_buff.length);
 			}
 
 			for (let c = 0; c < cells_count; ++c)
@@ -139,7 +139,7 @@ class Cell {
 	}
 
 	totalCellsCount() : number {
-		return 1 + sum(this.refs.map((cell : Cell) => cell.totalCellsCount()));
+		return 1 + sum(this.refs.map((BagOfCells : BagOfCells) => BagOfCells.totalCellsCount()));
 	}
 	/*
 		serialized_boc#b5ee9c72 has_idx:(## 1) has_crc32c:(## 1)
@@ -158,18 +158,18 @@ class Cell {
 	// */
 	cellData() : Buffer {
 		let i = 1; 
-		let toadd : Cell[] = [this], ntoadd = [];
+		let toadd : BagOfCells[] = [this], ntoadd = [];
 		let res = [];
 		while (toadd.length > 0) {
 			for (let a = 0; a < toadd.length; ++a) {
-				let cell = toadd[a];
+				let BagOfCells = toadd[a];
 				res.push(Buffer.concat([
 					Buffer.from(new Uint8Array([
-						(cell.refs.length & 7) | (cell.special ? 8 : 0),// | (3 << 5),
-						(~~(cell.len / 8) * 2 + ((cell.len & 7) != 0 ? 1 : 0))
+						(BagOfCells.refs.length & 7) | (BagOfCells.special ? 8 : 0),// | (3 << 5),
+						(~~(BagOfCells.len / 8) * 2 + ((BagOfCells.len & 7) != 0 ? 1 : 0))
 					])),
-					cell.data.slice(0, Math.ceil(cell.len / 8)),
-					Buffer.from(new Uint8Array(cell.refs.map(() => i++)))
+					BagOfCells.data.slice(0, Math.ceil(BagOfCells.len / 8)),
+					Buffer.from(new Uint8Array(BagOfCells.refs.map(() => i++)))
 				]));
 				for (let ref of toadd[a].refs)
 					ntoadd.push(ref);
@@ -183,7 +183,7 @@ class Cell {
 	indexes(off_bytes : number) : Buffer {
 		return Buffer.concat([
 			buint(this.index, off_bytes),
-			Buffer.concat(this.refs.map((ref : Cell) => ref.indexes(off_bytes)))
+			Buffer.concat(this.refs.map((ref : BagOfCells) => ref.indexes(off_bytes)))
 		]);
 	}
 	serialize() : Buffer {
@@ -191,7 +191,7 @@ class Cell {
 		let cells_count = this.totalCellsCount();
 		let cell_data = this.cellData();
 		let buff = Buffer.concat([
-			Cell.magicGeneric,
+			BagOfCells.magicGeneric,
 			Buffer.from(new Uint8Array([
 				size | 128 | 64, // has_idx, has_crc32c
 				off_bytes,
@@ -211,16 +211,16 @@ class Cell {
 		return buff;
 	}
 
-	putRef(cell : Cell) {
+	putRef(BagOfCells : BagOfCells) {
 		if (this.refs.length > 4)
-			throw new Error("Cannot put more than 4 references in cell");
+			throw new Error("Cannot put more than 4 references in boc cell.");
 
-		this.refs.push(cell);
+		this.refs.push(BagOfCells);
 	}
 
 	putBuffer(buff : Buffer) {
 		if (this.len + buff.length * 8 > 1023)
-			throw new Error("Out of cell.");
+			throw new Error("Bits out of cell.");
 	}
 
 	toString(tab : number = 0) {
@@ -235,5 +235,5 @@ class Cell {
 }
 
 export {
-	Cell
+	BagOfCells
 };

@@ -1,19 +1,13 @@
-import { StackEntry, Cell as StackCell, Slice as StackSlice } from './stack';
-import { Cell } from './boc';
+import * as Stack from './stack';
+import { BagOfCells } from './boc';
 
-const ref = require('ref');
+const { crc16xmodem } = require('crc');
 const ffi = require('ffi-napi');
+const ref = require('ref-napi');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const crc16 = require('crc16');
 const EventEmitter = require('events');
-
-const _void = ref.types.void;
-const _voidPtr = ref.refType(_void);
-const _char = ref.types.char;
-const _charPtr = ref.types.CString;
-const _double = ref.types.double;
 
 function delay(ms : number, func : Function) : Promise<any> {
 	return new Promise((resolve, reject) => {
@@ -37,7 +31,7 @@ class TONAddress {
 			let buffer = Buffer.from(string, 'base64');
 			let workchain = buffer[1];
 			let address = buffer.slice(2, 34);
-			let crc = crc16(buffer.slice(0, 34));
+			let crc = crc16xmodem(buffer.slice(0, 34));
 			if ((crc >> 8) !== buffer[34] || (crc & 0xff) !== buffer[35])
 				throw new Error("TONAddress: CRC hashsum of the address is different from the source: " + string);
 			return new TONAddress(workchain, address);
@@ -67,7 +61,7 @@ class TONAddress {
 		buffer[0] = 0x51 - (this.bounceable ? 0x40 : 0) + (this.testnet ? 0x80 : 0);
 		buffer[1] = this.workchain;
 		buffer.set(this.address, 2);
-		let crc = crc16(buffer.slice(0, 34));
+		let crc = crc16xmodem(buffer.slice(0, 34));
 		buffer[34] = crc >> 8;
 		buffer[35] = crc & 0xff;
 		return buffer
@@ -91,8 +85,8 @@ interface BlockID {
 interface Account {
 	address: TONAddress,
 	balance : BigInt;
-	code: Cell,
-	data: Cell,
+	code: BagOfCells,
+	data: BagOfCells,
 	lastTransaction: TransactionID;
 	block: BlockID;
 	sync?: Date;
@@ -150,7 +144,7 @@ class TransactionMessage {
 }
 interface MethodResult {
 	gasUsed : number;
-	stack : Array<StackEntry>;
+	stack : Array<Stack.StackEntry>;
 	exitCode: number;
 }
 
@@ -204,17 +198,17 @@ class TONClient extends EventEmitter {
 	private config : object;
 	private keystore : string;
 	constructor(
-		libPath : string = "lib/libtonlibjson.dylib",
+		libPath : string = __dirname + "/../lib/libtonlibjson.dylib",
 		config : object = TONClient.defaultConfig, 
 		keystore : string = TONClient.defaultKeystore()
 	) {
 		super();
 		this.lib = ffi.Library(libPath, {
-			"tonlib_client_json_create": [_voidPtr, []],
-			"tonlib_client_json_destroy": [_void, [_voidPtr]],
-			"tonlib_client_json_send": [_void, [_voidPtr, _charPtr]],
-			"tonlib_client_json_receive": [_charPtr, [_voidPtr, _double]],
-			"tonlib_client_json_execute": [_charPtr, [_voidPtr, _charPtr]]
+			"tonlib_client_json_create": ['void*', []],
+			"tonlib_client_json_destroy": ['void', ['void*']],
+			"tonlib_client_json_send": ['void', ['void*', ref.types.CString]],
+			"tonlib_client_json_receive": [ref.types.CString, ['void*', 'double']],
+			"tonlib_client_json_execute": [ref.types.CString, ['void*', ref.types.CString]]
 		});
 		this.config = config;
 		this.keystore = keystore;
@@ -222,7 +216,7 @@ class TONClient extends EventEmitter {
 	}
 
 	static async connect(
-		libPath : string = "lib/libtonlibjson.dylib",
+		libPath : string = __dirname + "/../lib/libtonlibjson.dylib",
 		config : object = TONClient.defaultConfig, 
 		keystore : string = TONClient.defaultKeystore()
 	) : Promise<TONClient> {
@@ -232,7 +226,7 @@ class TONClient extends EventEmitter {
 	}
 
 	private send(query : object) {
-		let buffer = ref.allocCString(this.stringifyJSON(query));
+		let buffer = Buffer.from(this.stringifyJSON(query) + String.fromCharCode(0), 'utf8');
 		this.lib.tonlib_client_json_send(this.instance, buffer);
 	}
 	
@@ -310,8 +304,8 @@ class TONClient extends EventEmitter {
 		return <Account> {
 			address,
 			balance: BigInt(result.balance),
-			code: Cell.deserialize(Buffer.from(result.code, 'base64')),
-			data: Cell.deserialize(Buffer.from(result.data, 'base64')),
+			code: BagOfCells.deserialize(Buffer.from(result.code, 'base64')),
+			data: BagOfCells.deserialize(Buffer.from(result.data, 'base64')),
 			lastTransaction: <TransactionID> {
 				lt: BigInt(result.last_transaction_id.lt),
 				hash: Buffer.from(result.last_transaction_id.hash, 'base64')
@@ -353,7 +347,7 @@ class TONClient extends EventEmitter {
 		for (let i = 0; i < transactions.length; ++i) {
 			let transaction = result.transactions[i];
 			transactions[i] = <Transaction> {
-				time: new Date(transaction.utime),
+				time: new Date(transaction.utime * 1000),
 				id: <TransactionID> {
 					lt: BigInt(transaction.transaction_id.lt),
 					hash: Buffer.from(transaction.transaction_id.hash, 'base64')
@@ -395,7 +389,7 @@ class TONClient extends EventEmitter {
 		})).id;
 	}
 
-	async runMethod(address : TONAddress | string, method: string | number, stack? : Array<StackEntry>) : Promise<MethodResult> {
+	async runMethod(address : TONAddress | string, method: string | number, stack? : Array<Stack.StackEntry>) : Promise<MethodResult> {
 		if (typeof address === 'string')
 			address = TONAddress.from(address);
 		if (typeof stack === 'undefined')
@@ -413,14 +407,14 @@ class TONClient extends EventEmitter {
 			'@type': 'smc.runGetMethod',
 			id: await this.getContractID(address),
 			method: methodObject,
-			stack: stack.map((element : StackEntry) => element.toEntryJSON())
+			stack: stack.map((element : Stack.StackEntry) => element.toEntryJSON())
 		});
 
 		this.checkObject(result, 'smc.runResult');
 		
 		return <MethodResult> {
 			gasUsed: result.gas_used,
-			stack: result.stack ? result.stack.map((element : any) => StackEntry.fromJSON(element)) : undefined,
+			stack: result.stack ? result.stack.map((element : any) => Stack.StackEntry.fromJSON(element)) : undefined,
 			exitCode: result.exit_code
 		};
 	}
@@ -428,5 +422,7 @@ class TONClient extends EventEmitter {
 
 export {
 	TONClient,
-	TONAddress
+	TONAddress,
+	BagOfCells,
+	Stack 
 };
