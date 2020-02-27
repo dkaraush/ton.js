@@ -15,14 +15,6 @@ const _char = ref.types.char;
 const _charPtr = ref.types.CString;
 const _double = ref.types.double;
 
-const tonlib = ffi.Library('lib/libtonlibjson.dylib', {
-	"tonlib_client_json_create": [_voidPtr, []],
-	"tonlib_client_json_destroy": [_void, [_voidPtr]],
-	"tonlib_client_json_send": [_void, [_voidPtr, _charPtr]],
-	"tonlib_client_json_receive": [_charPtr, [_voidPtr, _double]],
-	"tonlib_client_json_execute": [_charPtr, [_voidPtr, _charPtr]]
-});
-
 function delay(ms : number, func : Function) : Promise<any> {
 	return new Promise((resolve, reject) => {
 		setTimeout(() => {
@@ -47,10 +39,10 @@ class TONAddress {
 			let address = buffer.slice(2, 34);
 			let crc = crc16(buffer.slice(0, 34));
 			if ((crc >> 8) !== buffer[34] || (crc & 0xff) !== buffer[35])
-				throw new Error("CRC hashsum of the address is different from the source: " + string);
+				throw new Error("TONAddress: CRC hashsum of the address is different from the source: " + string);
 			return new TONAddress(workchain, address);
 		} else {
-			throw new Error("Failed to parse TON address: " + string);
+			throw new Error("TONAddress: Failed to parse TON address: " + string);
 		}
 	}
 
@@ -59,8 +51,12 @@ class TONAddress {
 
 	workchain : number;
 	address : Buffer;
-	constructor(workchain : number, address : Buffer, bounceable : boolean = false, testnet : boolean = true) {
+	constructor(workchain : number, address : Buffer | string, bounceable : boolean = false, testnet : boolean = true) {
 		this.workchain = workchain;
+		if (typeof address === 'string')
+			address = Buffer.from(address, 'hex');
+		if (address.length !== 32)
+			throw new Error("TONAddress: bad length of address buffer (" + address.length + ", should be: 32)");
 		this.address = address;
 		this.bounceable = bounceable;
 		this.testnet = testnet;
@@ -158,6 +154,7 @@ interface MethodResult {
 	exitCode: number;
 }
 
+
 class TONClient extends EventEmitter {
 	static Gram : number = 1000000000;
 	static defaultConfig = {
@@ -189,7 +186,73 @@ class TONClient extends EventEmitter {
 			fs.mkdirSync(keystore);
 		return keystore.toString();
 	}
-	initObject() : object {
+	private stringifyJSON(obj : any) : string {
+		return JSON.stringify(obj, (key : string, value : any) => {
+			if (typeof value === 'bigint')
+				return value.toString();
+			if (value instanceof Buffer)
+				return value.toString('base64');
+			return value;
+		});
+	}
+
+	inited : boolean = false;
+	state : boolean = false;
+
+	private lib : any;
+	private instance : Buffer;
+	private config : object;
+	private keystore : string;
+	constructor(
+		libPath : string = "lib/libtonlibjson.dylib",
+		config : object = TONClient.defaultConfig, 
+		keystore : string = TONClient.defaultKeystore()
+	) {
+		super();
+		this.lib = ffi.Library(libPath, {
+			"tonlib_client_json_create": [_voidPtr, []],
+			"tonlib_client_json_destroy": [_void, [_voidPtr]],
+			"tonlib_client_json_send": [_void, [_voidPtr, _charPtr]],
+			"tonlib_client_json_receive": [_charPtr, [_voidPtr, _double]],
+			"tonlib_client_json_execute": [_charPtr, [_voidPtr, _charPtr]]
+		});
+		this.config = config;
+		this.keystore = keystore;
+		this.instance = Buffer.from("");
+	}
+
+	static async connect(
+		libPath : string = "lib/libtonlibjson.dylib",
+		config : object = TONClient.defaultConfig, 
+		keystore : string = TONClient.defaultKeystore()
+	) : Promise<TONClient> {
+		let client = new TONClient();
+		await client.init();
+		return client;
+	}
+
+	private send(query : object) {
+		let buffer = ref.allocCString(this.stringifyJSON(query));
+		this.lib.tonlib_client_json_send(this.instance, buffer);
+	}
+	
+	private async receive(timeout = 2) : Promise<object> {
+		let result = await this.lib.tonlib_client_json_receive(this.instance, timeout);
+		if (typeof result === 'string' && result.length > 0) {
+			result = JSON.parse(result);
+			if (result['@type'] === 'updateSyncState')
+				return delay(500, () => this.receive(timeout));
+		} else 
+			throw new Error("Bad libtonlibjson response: " + result);
+		return result;
+	}
+
+	private async exec(query : object, timeout = 2) : Promise<any> {
+		this.send(query);
+		return this.receive(timeout);
+	}
+
+	private initObject() : object {
 		return {
 			'@type': 'init',
 			'options': {
@@ -208,51 +271,11 @@ class TONClient extends EventEmitter {
 			}
 		};
 	}
-
-	inited : boolean = false;
-	state : boolean = false;
-
-	private instance : Buffer;
-	private config : object;
-	private keystore : string;
-	constructor(
-		config : object = TONClient.defaultConfig, 
-		keystore : string = TONClient.defaultKeystore()
-	) {
-		super();
-		this.config = config;
-		this.keystore = keystore;
-		this.instance = Buffer.from("");
-		this.init();
-	}
-
-	private send(query : object) {
-		let buffer = ref.allocCString(JSON.stringify(query));
-		tonlib.tonlib_client_json_send(this.instance, buffer);
-	}
-	
-	private async receive(timeout = 2) : Promise<object> {
-		let result = await tonlib.tonlib_client_json_receive(this.instance, timeout);
-		if (typeof result === 'string' && result.length > 0) {
-			result = JSON.parse(result);
-			if (result['@type'] === 'updateSyncState')
-				return delay(500, () => this.receive(timeout));
-		} else 
-			throw new Error("Bad libtonlibjson response: " + result);
-		return result;
-	}
-
-	private async exec(query : object, timeout = 2) : Promise<any> {
-		this.send(query);
-		return this.receive(timeout);
-	}
-
-	private async init() {
-		this.instance = await tonlib.tonlib_client_json_create();
+	private async init() : Promise<void> {
+		this.instance = await this.lib.tonlib_client_json_create();
 		await this.exec(this.initObject());
 		await this.setVerbosityLevel(0);
 		this.inited = true;
-		this.emit("connect");
 	}
 
 	private async setVerbosityLevel(level : number) {
@@ -360,7 +383,7 @@ class TONClient extends EventEmitter {
 		});
 	}
 
-	async getContractID(address : TONAddress | string) {
+	private async getContractID(address : TONAddress | string) {
 		if (typeof address === 'string')
 			address = TONAddress.from(address);
 

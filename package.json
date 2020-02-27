@@ -2,23 +2,29 @@
   "name": "ton.js",
   "version": "0.1.0",
   "description": "TON Lite client implementation in Node.js (using libtonlibjson)",
-  "main": "index.js",
+  "main": "build/index.js",
   "directories": {
     "lib": "lib"
   },
   "dependencies": {
+    "assert": "^2.0.0",
     "crc16": "^1.0.1",
     "fast-crc32c": "^2.0.0",
     "typescript": "^3.8.2"
   },
   "devDependencies": {
+    "@types/chai": "^4.2.9",
+    "@types/mocha": "^7.0.1",
+    "chai": "^4.2.0",
     "ffi-napi": "^2.4.6",
-    "ref": "^1.3.5"
+    "mocha": "^7.1.0",
+    "ref": "^1.3.5",
+    "ts-node": "^8.6.2"
   },
   "scripts": {
     "build": "tsc",
     "start": "tsc && node build/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "mocha -r ts-node/register src/**/*.test.ts"
   },
   "repository": {
     "type": "git",
