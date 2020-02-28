@@ -191,7 +191,6 @@ class TONClient extends EventEmitter {
 	}
 
 	inited : boolean = false;
-	state : boolean = false;
 
 	private lib : any;
 	private instance : Buffer;
@@ -267,6 +266,8 @@ class TONClient extends EventEmitter {
 	}
 	private async init() : Promise<void> {
 		this.instance = await this.lib.tonlib_client_json_create();
+		if (this.instance.length == 0)
+			throw new Error("Failed to initialize library");
 		await this.exec(this.initObject());
 		await this.setVerbosityLevel(0);
 		this.inited = true;
@@ -290,6 +291,9 @@ class TONClient extends EventEmitter {
 
 	// methods
 	async getAccount(address : string | TONAddress) {
+		if (!this.inited)
+			throw new Error('TONClient is not inited');
+
 		if (typeof address === 'string')
 			address = TONAddress.from(address);
 
@@ -322,6 +326,9 @@ class TONClient extends EventEmitter {
 	}
 
 	async getTransactions(address : string | TONAddress, offset? : TransactionID) : Promise<Transactions> {
+		if (!this.inited)
+			throw new Error('TONClient is not inited');
+		
 		if (typeof address === 'string')
 			address = TONAddress.from(address);
 
@@ -378,6 +385,9 @@ class TONClient extends EventEmitter {
 	}
 
 	private async getContractID(address : TONAddress | string) {
+		if (!this.inited)
+			throw new Error('TONClient is not inited');
+		
 		if (typeof address === 'string')
 			address = TONAddress.from(address);
 
@@ -390,6 +400,9 @@ class TONClient extends EventEmitter {
 	}
 
 	async runMethod(address : TONAddress | string, method: string | number, stack? : Array<Stack.StackEntry>) : Promise<MethodResult> {
+		if (!this.inited)
+			throw new Error('TONClient is not inited');
+		
 		if (typeof address === 'string')
 			address = TONAddress.from(address);
 		if (typeof stack === 'undefined')

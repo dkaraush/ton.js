@@ -1,6 +1,6 @@
 {
   "name": "ton.js",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "TON Lite client implementation in Node.js (using libtonlibjson)",
   "main": "build/index.js",
   "types": "build/index.d.js",

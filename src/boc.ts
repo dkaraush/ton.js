@@ -86,6 +86,7 @@ class BagOfCells {
 					indexes[i] = uint(buffer.slice(o, o += off_bytes));
 			}
 			let cell_data = buffer.slice(o, o += tot_cells_size);
+			
 			if (has_crc32c) {
 				let crc = buffer.slice(buffer.length - 4, buffer.length);
 				if (crc32c.calculate(buffer.slice(0, buffer.length - 4)) !== crc.readUInt32LE(0))
@@ -233,6 +234,9 @@ class BagOfCells {
 		return s;
 	}
 }
+
+let data = Buffer.from('B5EE9C72010101010002000000', 'hex');
+BagOfCells.deserialize(data);
 
 export {
 	BagOfCells
